@@ -12,50 +12,9 @@
  * @copyright Ruuvi Innovations Ltd, license BSD-3-Clause.
  */
 #include "app_config.h"
-#include "app_button.h"
-#include "app_comms.h"
-#include "app_heartbeat.h"
-#include "app_led.h"
-#include "app_log.h"
-#include "app_power.h"
-#include "app_sensor.h"
 #include "main.h"
-#include "run_integration_tests.h"
 #include "ruuvi_interface_log.h"
-#include "ruuvi_interface_power.h"
-#include "ruuvi_interface_scheduler.h"
-#include "ruuvi_interface_timer.h"
-#include "ruuvi_interface_watchdog.h"
 #include "ruuvi_interface_yield.h"
-#include "ruuvi_task_button.h"
-#include "ruuvi_task_flash.h"
-#include "ruuvi_task_gpio.h"
-#include "ruuvi_task_led.h"
-
-#if (!RUUVI_RUN_TESTS)
-#ifndef CEEDLING
-static
-#endif
-void on_wdt (void)
-{
-    // Store cause of reset to flash - TODO
-}
-#endif
-
-#ifndef CEEDLING
-static
-#endif
-void app_on_error (const rd_status_t error,
-                   const bool fatal,
-                   const char * file,
-                   const int line)
-{
-    // TODO: store error source to flash.
-    if (fatal)
-    {
-        ri_power_reset();
-    }
-}
 
 /**
  * @brief setup MCU peripherals and board peripherals.
@@ -64,62 +23,55 @@ void app_on_error (const rd_status_t error,
 void setup (void)
 {
     rd_status_t err_code = RD_SUCCESS;
-    float motion_threshold = APP_MOTION_THRESHOLD;
-#   if (!RUUVI_RUN_TESTS)
-    err_code |= ri_watchdog_init (APP_WDT_INTERVAL_MS, &on_wdt);
-    err_code |= ri_log_init (APP_LOG_LEVEL); // Logging to terminal.
-#   endif
+    err_code |= ri_log_init(APP_LOG_LEVEL);
+    ri_log(APP_LOG_LEVEL, "Log module started\r\n");
+
+    /* Initialize yield module */
+    ri_log(APP_LOG_LEVEL, "Initialize yield module\r\n");
     err_code |= ri_yield_init();
-    err_code |= ri_timer_init();
-    err_code |= ri_scheduler_init();
-    err_code |= rt_gpio_init();
-    err_code |= ri_yield_low_power_enable (true);
-    err_code |= rt_flash_init();
-    err_code |= app_led_init();
-    err_code |= app_led_activate (RB_LED_STATUS_ERROR);
-    err_code |= app_button_init();
-    err_code |= app_dc_dc_init();
-    err_code |= app_sensor_init();
-    err_code |= app_log_init();
-    // Allow fail on boards which do not have accelerometer.
-    (void) app_sensor_acc_thr_set (&motion_threshold);
-    err_code |= app_comms_init (APP_LOCKED_AT_BOOT);
-    err_code |= app_heartbeat_init();
-    err_code |= app_heartbeat_start();
-    err_code |= app_led_deactivate (RB_LED_STATUS_ERROR);
 
-    if (RD_SUCCESS == err_code)
-    {
-        err_code |= app_led_activate (RB_LED_STATUS_OK);
-        err_code |= ri_delay_ms (APP_SELFTEST_OK_DELAY_MS);
-        err_code |= app_led_deactivate (RB_LED_STATUS_OK);
-    }
+    /* Initialize gpio module */
+    ri_log(APP_LOG_LEVEL, "Initialize gpio module\r\n");
+    err_code |= ri_gpio_init();
 
-    err_code |= app_led_activity_set (RB_LED_ACTIVITY);
-    rd_error_cb_set (&app_on_error);
     RD_ERROR_CHECK (err_code, RD_SUCCESS);
 }
 
-#ifdef  CEEDLING
-int app_main (void)
-#else
-int main (void)
-#endif
+void config_gpios(void)
 {
-#   if RUUVI_RUN_TESTS
-    integration_tests_run();
-#   endif
+  /* Turn off sensors */
+  ri_gpio_configure(RB_SPI_SS_ACCELEROMETER_PIN, RI_GPIO_MODE_OUTPUT_STANDARD);
+  ri_gpio_write(RB_SPI_SS_ACCELEROMETER_PIN, RI_GPIO_HIGH);
+  ri_gpio_configure(RB_SPI_SS_ENVIRONMENTAL_PIN, RI_GPIO_MODE_OUTPUT_STANDARD);
+  ri_gpio_write(RB_SPI_SS_ENVIRONMENTAL_PIN, RI_GPIO_HIGH);
+
+  /* Put SPI lines into HIGH state to avoid power leaks */
+  ri_gpio_configure(RB_SPI_SCLK_PIN, RI_GPIO_MODE_OUTPUT_STANDARD);
+  ri_gpio_write(RB_SPI_SCLK_PIN, RI_GPIO_HIGH);
+  ri_gpio_configure(RB_SPI_MOSI_PIN, RI_GPIO_MODE_OUTPUT_STANDARD);
+  ri_gpio_write(RB_SPI_MOSI_PIN, RI_GPIO_HIGH);
+
+  /* LEDs high / inactive */
+  ri_gpio_configure(RB_LED_RED, RI_GPIO_MODE_OUTPUT_HIGHDRIVE);
+  ri_gpio_write(RB_LED_RED, RI_GPIO_HIGH);
+  ri_gpio_configure(RB_LED_GREEN, RI_GPIO_MODE_OUTPUT_HIGHDRIVE);
+  ri_gpio_write(RB_LED_GREEN, RI_GPIO_HIGH);
+
+  /* BUtton, and SPI MISO lines pulled up */
+  ri_gpio_configure(RB_BUTTON_1, RI_GPIO_MODE_INPUT_PULLUP);
+  ri_gpio_configure(RB_SPI_MISO_PIN, RI_GPIO_MODE_INPUT_PULLUP);
+}
+
+int main (void)
+{
+
     setup();
 
     do
     {
-        ri_scheduler_execute();
-        // Sleep - woken up on event
-        app_led_activity_indicate (false);
-        ri_yield();
-        app_led_activity_indicate (true);
-        // Prevent loop being optimized away
-        __asm__ ("");
+      ri_log(APP_LOG_LEVEL, "Going to sleep\r\n");
+      ri_yield();
+      ri_log(APP_LOG_LEVEL, "Waking up\r\n");
     } while (LOOP_FOREVER);
 
     // Intentionally non-reachable code unless unit testing.
