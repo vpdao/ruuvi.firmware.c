@@ -28,18 +28,7 @@
 
 #define APP_SELFTEST_OK_DELAY_MS (1000U) //!< time to show "ok" led.
 
-#ifdef CEEDLING
-void on_wdt (void);
-void app_on_error (const rd_status_t error,
-                   const bool fatal,
-                   const char * file,
-                   const int line);
-void setup (void);
-int app_main (void);
-#define LOOP_FOREVER 0 //!< Ceedling run exits
-#else
 #define LOOP_FOREVER 1 //!< Normal run does not exit.
-#endif
 
 /*@}*/
 #endif // MAIN_H
